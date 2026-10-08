@@ -32,6 +32,7 @@ select{width:100%;border:1px solid #d2e0da;background:white;color:#183c35}
 
 .authbar{display:flex;align-items:center;gap:10px;margin:16px 0}.userbox{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #dbe7e1;border-radius:16px;padding:10px 14px}.smallbtn{border:1px solid #d2e0da;background:#fff;cursor:pointer;padding:9px 12px;border-radius:10px}.modal{position:fixed;inset:0;background:#183c3566;display:none;align-items:center;justify-content:center;padding:20px;z-index:20}.modal.show{display:flex}.modal-card{width:min(480px,100%);background:#fff;border-radius:22px;padding:24px;box-shadow:0 20px 60px #183c3533}.modal-card input,.modal-card select{width:100%;padding:12px;border:1px solid #d2e0da;border-radius:12px;font:inherit}.modal-card .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.dashboard{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:18px}.stat{background:#f7faf8;border:1px solid #dbe7e1;border-radius:16px;padding:16px;text-align:center}.stat b{display:block;font-size:26px;color:#2f6659}.hidden{display:none!important}@media(max-width:700px){.dashboard{grid-template-columns:1fr}.modal-card .row{grid-template-columns:1fr}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="app">
@@ -110,7 +111,7 @@ select{width:100%;border:1px solid #d2e0da;background:white;color:#183c35}
 <div class="modal" id="teacherModal">
   <div class="modal-card" style="max-width:820px">
     <div style="display:flex;justify-content:space-between;align-items:center"><h2>👩‍🏫 Мұғалім кабинеті</h2><button class="smallbtn" id="teacherClose">Жабу</button></div>
-    <p class="sub">Бұл тесттік нұсқада осы құрылғыда жиналған оқушы нәтижелері мен пікірлер көрінеді.</p>
+    <p class="sub">Оқушылардың нәтижелері мен пікірлері Supabase арқылы ортақ онлайн дерекқордан көрсетіледі.</p>
     <div class="dashboard">
       <div class="stat"><b id="tUsers">0</b><span>оқушы</span></div>
       <div class="stat"><b id="tTopics">0</b><span>орындалған тақырып</span></div>
@@ -130,12 +131,13 @@ select{width:100%;border:1px solid #d2e0da;background:white;color:#183c35}
   <div class="modal-card">
     <h2 id="authTitle">Qazaqsha Speaking-ке қош келдіңіз!</h2>
     <p class="sub" id="authSub">Тіркеліп, өз нәтижеңізді сақтаңыз.</p>
-    <div class="row">
+    <div style="margin-top:12px"><label>Email</label><input id="regEmail" type="email" placeholder="student@example.com" /></div>
+    <div class="row" style="margin-top:12px">
       <div><label>Аты-жөні</label><input id="regName" placeholder="Мысалы: Максим" /></div>
       <div><label>Сынып</label><select id="regGrade"><option>10-сынып</option><option>11-сынып</option></select></div>
     </div>
-    <div style="margin-top:12px"><label>Құпия сөз</label><input id="regPass" type="password" placeholder="Кемінде 4 таңба" /></div>
-    <div class="actions"><button class="btn" id="authSave">🚀 Тіркелу</button><button class="smallbtn" id="authClose">Жабу</button></div>
+    <div style="margin-top:12px"><label>Құпия сөз</label><input id="regPass" type="password" placeholder="Кемінде 6 таңба" /></div>
+    <div class="actions"><button class="btn" id="authSave">🚀 Тіркелу</button><button class="smallbtn" id="authLogin">🔐 Кіру</button><button class="smallbtn" id="authClose">Жабу</button></div>
     <div id="authMsg" class="meta"></div>
   </div>
 </div>
@@ -145,57 +147,124 @@ const DB={"10-сынып": {"Еңбек нарығы": ["Еңбек нарығы
 let lang="kk", timer=null, phase="idle", sec=30, total=30, last=-1;
 
 
-const usersKey='qazaqshaSpeakingUsers';
-const sessionKey='qazaqshaSpeakingSession';
-function getUsers(){return JSON.parse(localStorage.getItem(usersKey)||'[]')}
-function currentUser(){const n=localStorage.getItem(sessionKey); return getUsers().find(u=>u.name===n)||null}
-function saveUsers(u){localStorage.setItem(usersKey,JSON.stringify(u))}
+const SUPABASE_URL='https://ivedxkkpuvtifswrspku.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_dkqCGUlyRq_LneRUgktTCA_H0Frr8Xh';
+const supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+let authSession=null, authProfile=null;
+
+async function loadProfile(){
+  if(!authSession?.user){authProfile=null;updateDashboard();return null;}
+  const {data,error}=await supabaseClient.from('profiles').select('*').eq('id',authSession.user.id).maybeSingle();
+  if(error){console.error(error);authProfile=null;}
+  else authProfile=data;
+  updateDashboard();
+  return authProfile;
+}
+async function initAuth(){
+  const {data}=await supabaseClient.auth.getSession();
+  authSession=data.session;
+  await loadProfile();
+  supabaseClient.auth.onAuthStateChange(async (_event,session)=>{
+    authSession=session;
+    if(session){setTimeout(()=>loadProfile(),0);}else{authProfile=null;updateDashboard();}
+  });
+}
+function currentUser(){return authSession?.user&&authProfile?{...authProfile,email:authSession.user.email}:null}
 function updateDashboard(){
  const u=currentUser();
  if(!u){$('userBox').classList.add('hidden');$('registerBtn').classList.remove('hidden');$('dashboard').classList.add('hidden');return;}
- $('userBox').classList.remove('hidden');$('registerBtn').classList.add('hidden');$('userName').textContent=u.name+' · '+u.grade;$('dashboard').classList.remove('hidden');
- $('statTopics').textContent=u.topics||0;$('statMinutes').textContent=u.minutes||0;$('statGrade').textContent=u.grade;
+ $('userBox').classList.remove('hidden');$('registerBtn').classList.add('hidden');$('userName').textContent=u.full_name+' · '+u.grade;$('dashboard').classList.remove('hidden');
+ loadStudentStats(u.id);
 }
-function openAuth(){ $('authModal').classList.add('show'); $('authMsg').textContent=''; $('regName').value=''; $('regPass').value=''; }
-function registerUser(){
- const name=$('regName').value.trim(), grade=$('regGrade').value, pass=$('regPass').value;
- if(name.length<2){$('authMsg').textContent='Атыңызды енгізіңіз.';return;}
- if(pass.length<4){$('authMsg').textContent='Құпия сөз кемінде 4 таңба болуы керек.';return;}
- const users=getUsers();
- if(users.some(u=>u.name.toLowerCase()===name.toLowerCase())){$('authMsg').textContent='Бұл есіммен қолданушы бар. Басқа есім енгізіңіз.';return;}
- users.push({name,grade,pass,topics:0,minutes:0});saveUsers(users);localStorage.setItem(sessionKey,name);$('authModal').classList.remove('show');updateDashboard();
+async function loadStudentStats(userId){
+ const {data,error}=await supabaseClient.from('speaking_results').select('speaking_seconds').eq('user_id',userId);
+ if(error){console.error(error);return;}
+ $('statTopics').textContent=(data||[]).length;
+ $('statMinutes').textContent=Math.round((data||[]).reduce((s,r)=>s+(Number(r.speaking_seconds)||0),0)/60);
+ $('statGrade').textContent=authProfile?.grade||'—';
 }
-function logout(){localStorage.removeItem(sessionKey);updateDashboard();}
-function markCompleted(){
+function openAuth(){ $('authModal').classList.add('show'); $('authMsg').textContent=''; $('regEmail').value=''; $('regName').value=''; $('regPass').value=''; }
+async function registerUser(){
+ const email=$('regEmail').value.trim(), name=$('regName').value.trim(), grade=$('regGrade').value, pass=$('regPass').value;
+ if(!email || !email.includes('@')){$('authMsg').textContent=lang==='ru'?'Введите корректный email.':'Дұрыс email енгізіңіз.';return;}
+ if(name.length<2){$('authMsg').textContent=lang==='ru'?'Введите имя.':'Атыңызды енгізіңіз.';return;}
+ if(pass.length<6){$('authMsg').textContent=lang==='ru'?'Пароль должен содержать минимум 6 символов.':'Құпия сөз кемінде 6 таңба болуы керек.';return;}
+ $('authMsg').textContent=lang==='ru'?'Регистрация...':'Тіркелу орындалуда...';
+ const {data,error}=await supabaseClient.auth.signUp({email,password:pass,options:{data:{full_name:name,grade}}});
+ if(error){$('authMsg').textContent=error.message;return;}
+ if(data.session){
+   $('authModal').classList.remove('show');
+   await loadProfile();
+ }else{
+   $('authMsg').textContent=lang==='ru'?'Проверьте почту и подтвердите email. После этого войдите.':'Поштаңызды тексеріп, email-ді растаңыз. Содан кейін кіріңіз.';
+ }
+}
+async function loginUser(){
+ const email=$('regEmail').value.trim(), pass=$('regPass').value;
+ if(!email || !pass){$('authMsg').textContent=lang==='ru'?'Введите email и пароль.':'Email және құпия сөзді енгізіңіз.';return;}
+ $('authMsg').textContent=lang==='ru'?'Вход...':'Кіру орындалуда...';
+ const {data,error}=await supabaseClient.auth.signInWithPassword({email,password:pass});
+ if(error){$('authMsg').textContent=error.message;return;}
+ authSession=data.session; await loadProfile(); $('authModal').classList.remove('show');
+}
+async function logout(){await supabaseClient.auth.signOut();}
+async function markCompleted(){
  const u=currentUser(); if(!u)return;
- const users=getUsers(); const i=users.findIndex(x=>x.name===u.name); if(i<0)return;
- users[i].topics=(users[i].topics||0)+1; users[i].minutes=(users[i].minutes||0)+1; saveUsers(users); updateDashboard();
+ const topic=$('topic').textContent;
+ const {error}=await supabaseClient.from('speaking_results').insert({user_id:u.id,class_name:u.grade,grade:u.grade,quarter:'I тоқсан',section_name:$('section').value,topic,preparation_seconds:30,speaking_seconds:60,self_rating:null});
+ if(error){console.error(error);return;}
+ await loadStudentStats(u.id);
 }
-$('registerBtn').onclick=openAuth; $('authClose').onclick=()=>$('authModal').classList.remove('show'); $('authSave').onclick=registerUser; $('logout').onclick=logout;
+$('registerBtn').onclick=openAuth; $('authClose').onclick=()=>$('authModal').classList.remove('show'); $('authSave').onclick=registerUser; $('authLogin').onclick=loginUser; $('logout').onclick=logout;
 
 const $=id=>document.getElementById(id);
 function gradeKeys(){return Object.keys(DB)}
 function sections(){return Object.keys(DB[$("grade").value])}
 
 
-function renderTeacher(){
- const users=getUsers();
- const feedback=JSON.parse(localStorage.getItem('qazaqshaSpeakingFeedback')||'[]');
- $('tUsers').textContent=users.length;
- $('tTopics').textContent=users.reduce((s,u)=>s+(u.topics||0),0);
+async function renderTeacher(){
+ const u=currentUser();
+ if(!u || u.role!=='teacher'){$('teacherTable').innerHTML='<div class="sub">Мұғалім құқығы жоқ.</div>';return;}
+ const [profilesRes,resultsRes,feedbackRes]=await Promise.all([
+   supabaseClient.from('profiles').select('id,full_name,grade,role,created_at').order('created_at',{ascending:false}),
+   supabaseClient.from('speaking_results').select('user_id,class_name,grade,section_name,topic,speaking_seconds,completed_at').order('completed_at',{ascending:false}),
+   supabaseClient.from('feedback').select('user_id,class_name,rating,format_rating,helped,liked,suggestion,created_at').order('created_at',{ascending:false})
+ ]);
+ if(profilesRes.error||resultsRes.error||feedbackRes.error){
+   const e=profilesRes.error||resultsRes.error||feedbackRes.error;
+   $('teacherTable').innerHTML='<div class="sub">Деректерді жүктеу қатесі: '+escapeHtml(e.message)+'</div>';return;
+ }
+ const profiles=profilesRes.data||[], results=resultsRes.data||[], feedback=feedbackRes.data||[];
+ $('tUsers').textContent=profiles.filter(p=>p.role==='student').length;
+ $('tTopics').textContent=results.length;
  $('tFeedback').textContent=feedback.length;
- $('teacherTable').innerHTML=users.length?`<table style="width:100%;border-collapse:collapse;font-size:14px"><tr><th style="text-align:left;padding:8px;border-bottom:1px solid #dbe7e1">Оқушы</th><th style="padding:8px;border-bottom:1px solid #dbe7e1">Сынып</th><th style="padding:8px;border-bottom:1px solid #dbe7e1">Тақырып</th><th style="padding:8px;border-bottom:1px solid #dbe7e1">Минут</th></tr>${users.map(u=>`<tr><td style="padding:8px;border-bottom:1px solid #edf2ef">${escapeHtml(u.name)}</td><td style="padding:8px;border-bottom:1px solid #edf2ef;text-align:center">${u.grade}</td><td style="padding:8px;border-bottom:1px solid #edf2ef;text-align:center">${u.topics||0}</td><td style="padding:8px;border-bottom:1px solid #edf2ef;text-align:center">${u.minutes||0}</td></tr>`).join('')}</table>`:'<div class="sub">Әзірге тіркелген оқушы жоқ.</div>';
- $('teacherFeedback').innerHTML=feedback.length?feedback.slice().reverse().map(f=>`<div class="phrase"><b>${escapeHtml(f.grade)} · ${escapeHtml(f.rating)}</b><br>${escapeHtml(f.text)}</div>`).join(''):'<div class="sub">Әзірге пікір жоқ.</div>';
+ const byId=Object.fromEntries(profiles.map(p=>[p.id,p]));
+ const stats=profiles.filter(p=>p.role==='student').map(p=>{
+   const rr=results.filter(r=>r.user_id===p.id); const mins=Math.round(rr.reduce((s,r)=>s+(Number(r.speaking_seconds)||0),0)/60);
+   return {p,n:rr.length,mins};
+ });
+ $('teacherTable').innerHTML=stats.length?`<table style="width:100%;border-collapse:collapse;font-size:14px"><tr><th style="text-align:left;padding:8px;border-bottom:1px solid #dbe7e1">Оқушы</th><th style="padding:8px;border-bottom:1px solid #dbe7e1">Сынып</th><th style="padding:8px;border-bottom:1px solid #dbe7e1">Тақырып</th><th style="padding:8px;border-bottom:1px solid #dbe7e1">Минут</th></tr>${stats.map(x=>`<tr><td style="padding:8px;border-bottom:1px solid #edf2ef">${escapeHtml(x.p.full_name)}</td><td style="padding:8px;border-bottom:1px solid #edf2ef;text-align:center">${escapeHtml(x.p.grade)}</td><td style="padding:8px;border-bottom:1px solid #edf2ef;text-align:center">${x.n}</td><td style="padding:8px;border-bottom:1px solid #edf2ef;text-align:center">${x.mins}</td></tr>`).join('')}</table>`:'<div class="sub">Әзірге тіркелген оқушы жоқ.</div>';
+ $('teacherFeedback').innerHTML=feedback.length?feedback.slice(0,20).map(f=>{
+   const p=byId[f.user_id]; const rating=f.rating?('⭐'.repeat(Number(f.rating))):''; const text=f.suggestion||f.liked||'';
+   return `<div class="phrase"><b>${escapeHtml(p?.full_name||'Оқушы')} · ${escapeHtml(f.class_name||'')} · ${rating}</b><br>${escapeHtml(text)}</div>`;
+ }).join(''):'<div class="sub">Әзірге пікір жоқ.</div>';
 }
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-function openTeacher(){
- const pass=prompt('Мұғалім кабинеті үшін құпия сөзді енгізіңіз:');
- if(pass!=='1234'){if(pass!==null) alert('Құпия сөз қате.');return;}
- renderTeacher(); $('teacherModal').classList.add('show');
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+async function openTeacher(){
+ const u=currentUser();
+ if(!u){$('authMsg').textContent='Алдымен оқушы/мұғалім аккаунтымен кіріңіз.';$('authModal').classList.add('show');return;}
+ if(u.role!=='teacher'){alert(lang==='ru'?'У этой учётной записи нет прав учителя.':'Бұл аккаунтта мұғалім құқығы жоқ.');return;}
+ await renderTeacher(); $('teacherModal').classList.add('show');
 }
-function exportCsv(){
- const users=getUsers();
- const rows=[['Аты-жөні','Сынып','Орындалған тақырып','Сөйлеу минуты'],...users.map(u=>[u.name,u.grade,u.topics||0,u.minutes||0])];
+async function exportCsv(){
+ const u=currentUser(); if(!u||u.role!=='teacher')return;
+ const [profilesRes,resultsRes]=await Promise.all([
+   supabaseClient.from('profiles').select('id,full_name,grade,role'),
+   supabaseClient.from('speaking_results').select('user_id,speaking_seconds')
+ ]);
+ if(profilesRes.error||resultsRes.error){alert('Деректерді жүктеу қатесі.');return;}
+ const results=resultsRes.data||[];
+ const rows=[['Аты-жөні','Сынып','Орындалған тақырып','Сөйлеу минуты'],...((profilesRes.data||[]).filter(p=>p.role==='student').map(p=>{const rr=results.filter(r=>r.user_id===p.id);return [p.full_name,p.grade,rr.length,Math.round(rr.reduce((s,r)=>s+(Number(r.speaking_seconds)||0),0)/60)]}))];
  const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\n');
  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='Qazaqsha_Speaking_natizhe.csv'; a.click(); URL.revokeObjectURL(a.href);
 }
@@ -232,12 +301,15 @@ function renderFeedback(){
   $("fbText").placeholder=r?"Напишите, что вы думаете о платформе...":"Платформа туралы ойыңызды жазыңыз...";
   $("fbSend").textContent=r?"📩 Оставить отзыв":"📩 Пікір қалдыру";
 }
-function saveFeedback(){
+async function saveFeedback(){
   const text=$("fbText").value.trim();
+  const u=currentUser();
+  if(!u){$("fbMsg").textContent=lang==="ru"?"Сначала войдите в аккаунт.":"Алдымен аккаунтқа кіріңіз.";return;}
   if(!text){$("fbMsg").textContent=lang==="ru"?"Пожалуйста, напишите отзыв.":"Пікіріңізді жазыңыз."; return;}
-  const item={grade:$("fbGrade").value,rating:$("fbRate").value,text,createdAt:new Date().toISOString()};
-  const list=JSON.parse(localStorage.getItem("qazaqshaSpeakingFeedback")||"[]"); list.push(item); localStorage.setItem("qazaqshaSpeakingFeedback",JSON.stringify(list));
-  $("fbText").value=""; $("fbMsg").textContent=lang==="ru"?"Спасибо! Ваш отзыв сохранён.":"Рақмет! Пікіріңіз сақталды.";
+  const m=$("fbRate").value.match(/⭐+/); const rating=m?m[0].length:3;
+  const {error}=await supabaseClient.from('feedback').insert({user_id:u.id,class_name:$("fbGrade").value,rating,format_rating:null,helped:null,liked:null,suggestion:text});
+  if(error){$("fbMsg").textContent=error.message;return;}
+  $("fbText").value=""; $("fbMsg").textContent=lang==="ru"?"Спасибо! Ваш отзыв сохранён онлайн.":"Рақмет! Пікіріңіз онлайн сақталды.";
 }
 function render(){
   const r=lang==="ru";
@@ -291,7 +363,7 @@ $("kk").onclick=()=>{lang="kk";$("kk").className="active";$("ru").className="";r
 $("ru").onclick=()=>{lang="ru";$("ru").className="active";$("kk").className="";render()};
 $("fbSend").onclick=saveFeedback;
 
-fillGrades(); render(); newTopic();
+fillGrades(); render(); newTopic(); initAuth();
 </script>
 </body>
 </html>
