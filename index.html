@@ -32,7 +32,7 @@ select{width:100%;border:1px solid #d2e0da;background:white;color:#183c35}
 
 .authbar{display:flex;align-items:center;gap:10px;margin:16px 0}.userbox{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #dbe7e1;border-radius:16px;padding:10px 14px}.smallbtn{border:1px solid #d2e0da;background:#fff;cursor:pointer;padding:9px 12px;border-radius:10px}.modal{position:fixed;inset:0;background:#183c3566;display:none;align-items:center;justify-content:center;padding:20px;z-index:20}.modal.show{display:flex}.modal-card{width:min(480px,100%);background:#fff;border-radius:22px;padding:24px;box-shadow:0 20px 60px #183c3533}.modal-card input,.modal-card select{width:100%;padding:12px;border:1px solid #d2e0da;border-radius:12px;font:inherit}.modal-card .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.dashboard{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:18px}.stat{background:#f7faf8;border:1px solid #dbe7e1;border-radius:16px;padding:16px;text-align:center}.stat b{display:block;font-size:26px;color:#2f6659}.hidden{display:none!important}@media(max-width:700px){.dashboard{grid-template-columns:1fr}.modal-card .row{grid-template-columns:1fr}}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js'"></script>
 </head>
 <body>
 <div class="app">
@@ -149,10 +149,11 @@ let lang="kk", timer=null, phase="idle", sec=30, total=30, last=-1;
 
 const SUPABASE_URL='https://ivedxkkpuvtifswrspku.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_dkqCGUlyRq_LneRUgktTCA_H0Frr8Xh';
-const supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const supabaseClient=(window.supabase&&window.supabase.createClient) ? window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY) : null;
 let authSession=null, authProfile=null;
 
 async function loadProfile(){
+  if(!supabaseClient){authProfile=null;updateDashboard();return null;}
   if(!authSession?.user){authProfile=null;updateDashboard();return null;}
   const {data,error}=await supabaseClient.from('profiles').select('*').eq('id',authSession.user.id).maybeSingle();
   if(error){console.error(error);authProfile=null;}
@@ -161,6 +162,7 @@ async function loadProfile(){
   return authProfile;
 }
 async function initAuth(){
+  if(!supabaseClient){console.warn('Supabase client не загрузился'); updateDashboard(); return;}
   const {data}=await supabaseClient.auth.getSession();
   authSession=data.session;
   await loadProfile();
@@ -185,6 +187,7 @@ async function loadStudentStats(userId){
 }
 function openAuth(){ $('authModal').classList.add('show'); $('authMsg').textContent=''; $('regEmail').value=''; $('regName').value=''; $('regPass').value=''; }
 async function registerUser(){
+ if(!supabaseClient){$('authMsg').textContent=lang==='ru'?'Сервис авторизации временно недоступен. Обновите страницу.':'Авторизация қызметі уақытша қолжетімсіз. Бетті жаңартыңыз.';return;}
  const email=$('regEmail').value.trim(), name=$('regName').value.trim(), grade=$('regGrade').value, pass=$('regPass').value;
  if(!email || !email.includes('@')){$('authMsg').textContent=lang==='ru'?'Введите корректный email.':'Дұрыс email енгізіңіз.';return;}
  if(name.length<2){$('authMsg').textContent=lang==='ru'?'Введите имя.':'Атыңызды енгізіңіз.';return;}
@@ -200,6 +203,7 @@ async function registerUser(){
  }
 }
 async function loginUser(){
+ if(!supabaseClient){$('authMsg').textContent=lang==='ru'?'Сервис авторизации временно недоступен. Обновите страницу.':'Авторизация қызметі уақытша қолжетімсіз. Бетті жаңартыңыз.';return;}
  const email=$('regEmail').value.trim(), pass=$('regPass').value;
  if(!email || !pass){$('authMsg').textContent=lang==='ru'?'Введите email и пароль.':'Email және құпия сөзді енгізіңіз.';return;}
  $('authMsg').textContent=lang==='ru'?'Вход...':'Кіру орындалуда...';
@@ -207,9 +211,10 @@ async function loginUser(){
  if(error){$('authMsg').textContent=error.message;return;}
  authSession=data.session; await loadProfile(); $('authModal').classList.remove('show');
 }
-async function logout(){await supabaseClient.auth.signOut();}
+async function logout(){if(supabaseClient) await supabaseClient.auth.signOut();}
 async function markCompleted(){
- const u=currentUser(); if(!u)return;
+ const u=currentUser(); if(!supabaseClient)return;
+ if(!u)return;
  const topic=$('topic').textContent;
  const {error}=await supabaseClient.from('speaking_results').insert({user_id:u.id,class_name:u.grade,grade:u.grade,quarter:'I тоқсан',section_name:$('section').value,topic,preparation_seconds:30,speaking_seconds:60,self_rating:null});
  if(error){console.error(error);return;}
@@ -224,6 +229,8 @@ function sections(){return Object.keys(DB[$("grade").value])}
 
 async function renderTeacher(){
  const u=currentUser();
+ if(!supabaseClient){$('teacherTable').innerHTML='<div class="sub">Supabase не загрузился. Обновите страницу.</div>';return;}
+
  if(!u || u.role!=='teacher'){$('teacherTable').innerHTML='<div class="sub">Мұғалім құқығы жоқ.</div>';return;}
  const [profilesRes,resultsRes,feedbackRes]=await Promise.all([
    supabaseClient.from('profiles').select('id,full_name,grade,role,created_at').order('created_at',{ascending:false}),
@@ -257,7 +264,8 @@ async function openTeacher(){
  await renderTeacher(); $('teacherModal').classList.add('show');
 }
 async function exportCsv(){
- const u=currentUser(); if(!u||u.role!=='teacher')return;
+ const u=currentUser(); if(!supabaseClient)return;
+ if(!u||u.role!=='teacher')return;
  const [profilesRes,resultsRes]=await Promise.all([
    supabaseClient.from('profiles').select('id,full_name,grade,role'),
    supabaseClient.from('speaking_results').select('user_id,speaking_seconds')
