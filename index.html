@@ -220,9 +220,8 @@ async function markCompleted(){
  if(error){console.error(error);return;}
  await loadStudentStats(u.id);
 }
-$('registerBtn').onclick=openAuth; $('authClose').onclick=()=>$('authModal').classList.remove('show'); $('authSave').onclick=registerUser; $('authLogin').onclick=loginUser; $('logout').onclick=logout;
-
 const $=id=>document.getElementById(id);
+$('registerBtn').onclick=openAuth; $('authClose').onclick=()=>$('authModal').classList.remove('show'); $('authSave').onclick=registerUser; $('authLogin').onclick=loginUser; $('logout').onclick=logout;
 function gradeKeys(){return Object.keys(DB)}
 function sections(){return Object.keys(DB[$("grade").value])}
 
